@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ELISA Analyzer — Standard Curve & Plate Viewer</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  :root {
+    --primary: #2563eb; --primary-light: #dbeafe; --accent: #059669;
+    --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --muted: #64748b;
+    --border: #e2e8f0; --radius: 10px; --shadow: 0 1px 3px rgba(0,0,0,.1);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--text); }
+  header { background:linear-gradient(135deg,#1e40af,#2563eb); color:#fff; padding:18px 32px; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:1.4rem; font-weight:700; } header span { font-size:.85rem; opacity:.8; }
+  .container { max-width:1440px; margin:0 auto; padding:20px; display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start; }
+  @media(max-width:1060px){ .container{grid-template-columns:1fr;} }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; }
+  .card h2 { font-size:1rem; margin-bottom:12px; color:var(--primary); display:flex; align-items:center; gap:6px; }
+  .card h2::before { content:''; width:4px; height:18px; background:var(--primary); border-radius:2px; }
+  label { font-size:.8rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; display:block; margin-bottom:4px; }
+  select, input[type=number], input[type=text] {
+    width:100%; padding:7px 10px; border:1px solid var(--border); border-radius:6px; font-size:.85rem; background:#fff;
+  }
+  select:focus, input:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-light); }
+  .row { display:flex; gap:10px; align-items:end; }
+  .row > * { flex:1; }
+  button {
+    padding:8px 18px; border:none; border-radius:6px; font-size:.85rem; font-weight:600; cursor:pointer; transition:.15s;
+  }
+  .btn-primary { background:var(--primary); color:#fff; }
+  .btn-primary:hover { background:#1d4ed8; }
+  .btn-accent { background:var(--accent); color:#fff; }
+  .btn-accent:hover { background:#047857; }
+  .btn-sm { padding:5px 12px; font-size:.78rem; }
+  .btn-outline { background:transparent; border:1.5px solid var(--border); color:var(--text); }
+  .btn-outline:hover { border-color:var(--primary); color:var(--primary); }
+  .std-table { width:100%; border-collapse:collapse; font-size:.82rem; margin:8px 0; }
+  .std-table th { background:var(--primary-light); color:var(--primary); padding:6px 8px; text-align:left; font-weight:600; font-size:.75rem; }
+  .std-table td { padding:4px 6px; border-bottom:1px solid var(--border); }
+  .std-table input { width:70px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:.82rem; text-align:right; }
+  .slider-group { margin:8px 0; }
+  .slider-group .slider-header { display:flex; justify-content:space-between; align-items:center; }
+  .slider-group input[type=range] { width:100%; margin:4px 0; accent-color:var(--primary); }
+  .slider-val { font-size:.8rem; font-weight:600; color:var(--primary); min-width:60px; text-align:right; }
+  .section-divider { border:none; border-top:1px dashed var(--border); margin:14px 0; }
+  .stats-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 14px; margin:10px 0; font-size:.82rem; }
+  .stats-box .stat-row { display:flex; justify-content:space-between; margin:2px 0; }
+  .stats-box .stat-label { color:var(--muted); } .stats-box .stat-value { font-weight:700; color:var(--accent); }
+  .right-panel { display:flex; flex-direction:column; gap:10px; }
+  .right-panel > .card { padding:12px 14px; }
+  .right-panel > .card h2 { font-size:.88rem; margin-bottom:6px; }
+  .plate-grid { display:grid; grid-template-columns: 18px repeat(12, 1fr); gap:1px; padding:1px; }
+  .plate-header { font-size:.62rem; font-weight:700; color:var(--muted); text-align:center; padding:0; }
+  .plate-well {
+    aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:.8rem; font-weight:600; color:#fff; cursor:pointer; transition:.15s; border:2px solid rgba(0,0,0,.08);
+    text-shadow: 0 1px 2px rgba(0,0,0,.3); position:relative; line-height:1; text-align:center;
+  }
+  .plate-well:hover { transform:scale(1.25); z-index:10; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  .plate-well .tooltip {
+    display:none; position:absolute; bottom:115%; left:50%; transform:translateX(-50%);
+    background:#1e293b; color:#fff; padding:8px 12px; border-radius:6px; font-size:.75rem;
+    white-space:nowrap; z-index:100; pointer-events:none; text-shadow:none; text-align:left;
+  }
+  .plate-well:hover .tooltip { display:block; }
+  .plate-well.blank-well { color:var(--muted); text-shadow:none; font-size:.6rem; }
+  .plate-well.error-well { border-style:dashed !important; }
+  .error-btn-bar { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; }
+  .error-btn-bar button { padding:4px 8px; font-size:.68rem; font-weight:600; border-radius:5px;
+    border:1.5px solid var(--border); background:#fff; color:var(--text); cursor:pointer; transition:.15s; }
+  .error-btn-bar button:hover { border-color:var(--primary); color:var(--primary); background:var(--primary-light); }
+  .error-btn-bar button.active-error { border-color:#ef4444; background:#fef2f2; color:#dc2626; }
+  .error-log { font-size:.65rem; color:var(--muted); margin-top:4px; padding:4px 8px;
+    background:#fffbeb; border:1px solid #fde68a; border-radius:4px; display:none; }
+  .error-log b { color:#b45309; }
+  .section-divider { border:none; border-top:1px dashed var(--border); margin:14px 0; }
+  #curveChart { width:100%; height:360px; }
+  .flex-between { display:flex; justify-content:space-between; align-items:center; }
+  .controls-section { margin-bottom:10px; }
+  .controls-section:last-child { margin-bottom:0; }
+  .sample-table { width:100%; border-collapse:collapse; font-size:.72rem; margin-top:4px; }
+  .sample-table th { background:#dcfce7; color:#166534; padding:3px 6px; text-align:left; font-weight:600; font-size:.68rem; }
+  .sample-table td { padding:2px 6px; border-bottom:1px solid var(--border); }
+  .sample-table tr:hover { background:#f0fdf4; }
+  .cond-badge { display:inline-block; padding:1px 5px; border-radius:4px; font-size:.62rem; font-weight:600; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+  <div><h1>ELISA Analyzer</h1><span>Interactive Standard Curve Fitting & Plate Visualization</span></div>
+</header>
+
+<div class="container">
+  <!-- LEFT PANEL: CONTROLS -->
+  <div>
+    <!-- Standard Curve Data -->
+    <div class="card controls-section">
+      <h2>Standard Curve Data</h2>
+      <div class="row" style="margin-bottom:10px;">
+        <div><label>Standard Replicates</label>
+          <select id="stdReps" onchange="onStdRepsChange()">
+            <option value="2">Duplicate</option>
+            <option value="3">Triplicate</option>
+          </select>
+        </div>
+      </div>
+      <table class="std-table" id="stdTable">
+        <thead id="stdHead"></thead>
+        <tbody id="stdBody"></tbody>
+      </table>
+
+      <hr class="section-divider">
+      <h2 style="font-size:.9rem;">Plate Settings</h2>
+      <div class="row">
+        <div><label>Serial Dilution</label>
+          <select id="dilutionFactor" onchange="onPlateSettingsChange()">
+            <option value="2">1:2</option>
+            <option value="3">1:3</option>
+            <option value="4">1:4</option>
+            <option value="5">1:5</option>
+            <option value="10">1:10</option>
+          </select>
+        </div>
+        <div><label>Start Conc (pg/mL)</label>
+          <input type="number" id="startConc" value="2000" min="1" onchange="onPlateSettingsChange()">
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn-accent" onclick="regeneratePlate()" style="width:100%;">🔄 Regenerate Plate</button>
+      </div>
+      <hr class="section-divider">
+      <p style="font-size:.72rem;color:var(--muted);">
+        <b>Standards:</b> Cols 1–2 (dup) or 1–3 (trip), A→H dilution.<br>
+        <b>Samples (D–F triplicates):</b><br>
+        Col 5 = No stimulus &nbsp;|&nbsp; Col 6 = 1 ng/mL Protein X<br>
+        Col 7 = 10 ng/mL &nbsp;|&nbsp; Col 8 = 100 ng/mL<br>
+        Col 9 = 1000 ng/mL &nbsp;|&nbsp; All others = Blank
+      </p>
+    </div>
+
+    <!-- Curve Fitting -->
+    <div class="card controls-section">
+      <h2>Curve Fitting</h2>
+      <label>Model Type</label>
+      <select id="modelType" onchange="onModelChange()">
+        <option value="4pl">4-Parameter Logistic (4PL)</option>
+        <option value="linear">Linear</option>
+      </select>
+      <div style="margin-top:10px;">
+        <button class="btn-primary" onclick="fitCurve()" style="width:100%;">⚡ Fit Curve</button>
+      </div>
+
+      <!-- 4PL Parameter Sliders -->
+      <div id="sliderPanel">
+        <hr class="section-divider">
+        <label style="margin-bottom:8px;">4PL Parameters</label>
+        <div class="slider-group">
+          <div class="slider-header"><span style="font-size:.8rem;">A (min asymptote)</span><span class="slider-val" id="valA">0.05</span></div>
+          <input type="range" id="sliderA" min="-0.5" max="1.5" step="0.005" value="0.05" oninput="onSliderChange()">
+        </div>
+        <div class="slider-group">
+          <div class="slider-header"><span style="font-size:.8rem;">B (Hill slope)</span><span class="slider-val" id="valB">1.0</span></div>
+          <input type="range" id="sliderB" min="0.1" max="5" step="0.02" value="1.0" oninput="onSliderChange()">
+        </div>
+        <div class="slider-group">
+          <div class="slider-header"><span style="font-size:.8rem;">C (EC50)</span><span class="slider-val" id="valC">250</span></div>
+          <input type="range" id="sliderC" min="1" max="5000" step="1" value="250" oninput="onSliderChange()">
+        </div>
+        <div class="slider-group">
+          <div class="slider-header"><span style="font-size:.8rem;">D (max asymptote)</span><span class="slider-val" id="valD">3.0</span></div>
+          <input type="range" id="sliderD" min="0.5" max="5" step="0.005" value="3.0" oninput="onSliderChange()">
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-box" id="statsBox" style="display:none;">
+        <div class="stat-row"><span class="stat-label">R²</span><span class="stat-value" id="statR2">—</span></div>
+        <div class="stat-row"><span class="stat-label">Equation</span><span class="stat-value" id="statEq" style="font-size:.72rem;">—</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL: CHARTS & PLATE -->
+  <div class="right-panel">
+    <!-- Standard Curve Chart -->
+    <div class="card">
+      <h2>Standard Curve</h2>
+      <div id="curveChart"></div>
+    </div>
+
+    <!-- Plate Visualization -->
+    <div class="card">
+      <h2>96-Well Plate</h2>
+      <div class="error-btn-bar">
+        <span style="font-size:.65rem;font-weight:700;color:var(--muted);align-self:center;margin-right:2px;">Simulate:</span>
+        <button onclick="simPipetteStd()">🔬 Pipette Err (Std)</button>
+        <button onclick="simPipetteSample()">🔬 Pipette Err (Sample)</button>
+        <button onclick="simBubble()">🫧 Bubble</button>
+        <button onclick="simEdgeEffect()">🔲 Edge Effect</button>
+        <button onclick="simCrossContam()">☣️ Cross-Contam</button>
+        <button onclick="simIncompleteWash()">🧪 Incomplete Wash</button>
+        <button onclick="clearErrors()" style="border-color:#ef4444;color:#ef4444;">✕ Clear Errors</button>
+      </div>
+      <div id="plateArea"></div>
+      <div class="error-log" id="errorLog"></div>
+    </div>
+
+    <!-- Unknown Sample Results Table -->
+    <div class="card" id="sampleResultsCard" style="display:none;">
+      <h2>Sample Results — Imputed Concentrations</h2>
+      <div id="sampleResultsArea"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  CONSTANTS & STATE
+// ============================================================
+const NOISE_CV = 0.08; // fixed 8% CV
+
+// "True" underlying assay 4PL — represents the real biology of this ELISA.
+// All OD simulation uses this. The user's *fitted* model tries to recover it.
+// A(min)=0.05, B(slope)=1.2, C(EC50)=250, D(max)=3.0
+const TRUE_PARAMS = [0.05, 1.2, 250, 3.0];
+
+let stdData = [];       // [{conc, ods:[...]}]
+let fittedParams = null;
+let currentModel = '4pl';
+let plateData = null;   // generated plate — stable until explicitly regenerated
+
+const ROWS = 'ABCDEFGH'.split('');
+const COLS = Array.from({length:12},(_,i)=>i+1);
+
+// Sample conditions: rows D-F (indices 3,4,5) are triplicates
+const SAMPLE_ROWS = [3, 4, 5]; // D, E, F
+const SAMPLE_CONDITIONS = [
+  {col:4,  stimulus:'No stimulus',        stimConc:'—',         trueAnalyte:55},
+  {col:5,  stimulus:'Protein X 1 ng/mL',  stimConc:'1 ng/mL',  trueAnalyte:250},
+  {col:6,  stimulus:'Protein X 10 ng/mL', stimConc:'10 ng/mL', trueAnalyte:580},
+  {col:7,  stimulus:'Protein X 100 ng/mL',stimConc:'100 ng/mL',trueAnalyte:1100},
+  {col:8,  stimulus:'Protein X 1000 ng/mL',stimConc:'1000 ng/mL',trueAnalyte:1500},
+];
+
+function getStdReps() { return +document.getElementById('stdReps').value; }
+
+// ============================================================
+//  STANDARD CURVE TABLE
+// ============================================================
+function renderStdTable() {
+  const nReps = getStdReps();
+  const thead = document.getElementById('stdHead');
+  let hdr = '<tr><th>#</th><th>Conc (pg/mL)</th>';
+  for(let r=1;r<=nReps;r++) hdr += `<th>OD Rep ${r}</th>`;
+  hdr += '</tr>';
+  thead.innerHTML = hdr;
+
+  const tbody = document.getElementById('stdBody');
+  tbody.innerHTML = '';
+  stdData.forEach((d,i) => {
+    const tr = document.createElement('tr');
+    let cells = `<td style="color:var(--muted);font-size:.72rem;">${i+1}</td>
+      <td><input type="number" value="${d.conc}" min="0" step="any" onchange="stdData[${i}].conc=+this.value"></td>`;
+    for(let r=0;r<nReps;r++){
+      const val = d.ods[r] !== undefined ? d.ods[r] : '';
+      cells += `<td><input type="number" value="${val}" min="0" step="any"
+        onchange="stdData[${i}].ods[${r}]=+this.value"></td>`;
+    }
+    tr.innerHTML = cells;
+    tbody.appendChild(tr);
+  });
+}
+
+function onStdRepsChange() {
+  const nReps = getStdReps();
+  stdData.forEach(d => {
+    while(d.ods.length < nReps) d.ods.push(d.ods.length>0 ? +(d.ods[d.ods.length-1]+(Math.random()-0.5)*0.04).toFixed(3) : 0);
+    if(d.ods.length > nReps) d.ods.length = nReps;
+  });
+  renderStdTable();
+  if(fittedParams) fitCurve();
+}
+
+function loadDemoData() {
+  const nReps = getStdReps();
+  const base = [
+    {conc:2000, od:[2.85, 2.78, 2.82]},
+    {conc:1000, od:[2.52, 2.48, 2.55]},
+    {conc:500,  od:[2.02, 1.95, 1.98]},
+    {conc:250,  od:[1.42, 1.38, 1.45]},
+    {conc:125,  od:[0.82, 0.78, 0.80]},
+    {conc:62.5, od:[0.44, 0.41, 0.43]},
+    {conc:31.25,od:[0.22, 0.20, 0.21]},
+    {conc:0,    od:[0.06, 0.05, 0.055]},
+  ];
+  document.getElementById('startConc').value = 2000;
+  document.getElementById('dilutionFactor').value = '2';
+  stdData = base.map(b => ({conc:b.conc, ods:b.od.slice(0,nReps)}));
+  renderStdTable();
+  fitCurve();
+  // Directly generate plate (don't call regeneratePlate which would overwrite stdData)
+  plateData = generatePlateData();
+  if(plateData) { renderPlate(); renderSampleResults(); }
+}
+
+// Build standard concentrations from plate settings
+function getStdConcentrations() {
+  const dilution = +document.getElementById('dilutionFactor').value;
+  const startConc = +document.getElementById('startConc').value;
+  const concs = [];
+  for(let r=0;r<7;r++) concs.push(startConc / Math.pow(dilution, r));
+  concs.push(0);
+  return concs;
+}
+
+// Sync std data when plate dilution / start conc changes.
+// Always simulates ODs from the TRUE underlying assay curve (not the user's fit).
+function syncStdFromPlateSettings() {
+  const concs = getStdConcentrations();
+  const nReps = getStdReps();
+  stdData = concs.map(conc => {
+    const trueOD = fourPL(conc, TRUE_PARAMS);
+    const ods = [];
+    for(let r=0;r<nReps;r++){
+      const noise = conc===0 ? Math.abs(gaussRandom()*0.008) : trueOD*NOISE_CV*gaussRandom();
+      ods.push(Math.max(0, +(trueOD+noise).toFixed(3)));
+    }
+    return {conc, ods};
+  });
+  renderStdTable();
+}
+
+// Called when dilution or start conc changes
+function onPlateSettingsChange() {
+  syncStdFromPlateSettings();
+  fitCurve();
+  // Directly generate plate (regeneratePlate would double-sync)
+  plateData = generatePlateData();
+  if(plateData) { renderPlate(); renderSampleResults(); }
+}
+
+// ============================================================
+//  CURVE MODELS  (4PL + Linear only)
+// ============================================================
+function fourPL(x, p) {
+  if(x <= 0) return p[0];
+  return p[3] + (p[0]-p[3]) / (1 + Math.pow(x/p[2], p[1]));
+}
+function fourPLInverse(y, p) {
+  // Clamp y to stay within the asymptotes (A..D) to avoid NaN
+  const lo = Math.min(p[0],p[3]), hi = Math.max(p[0],p[3]);
+  const margin = (hi-lo)*0.001;
+  const yClamped = Math.min(Math.max(y, lo+margin), hi-margin);
+  const ratio = (p[0]-p[3])/(yClamped-p[3]) - 1;
+  if(ratio <= 0) return NaN;
+  return p[2] * Math.pow(ratio, 1/p[1]);
+}
+function linearModel(x, p) { return p[0]*x + p[1]; }
+
+function getModel() {
+  return document.getElementById('modelType').value === '4pl' ? fourPL : linearModel;
+}
+
+// Inverse: OD → concentration (returns Infinity for >ULOQ, -Infinity for <LLOQ)
+function invertModel(od) {
+  if(!fittedParams) return NaN;
+  let conc;
+  if(currentModel === '4pl') {
+    conc = fourPLInverse(od, fittedParams);
+  } else {
+    conc = (od - fittedParams[1]) / fittedParams[0];
+  }
+  if(isNaN(conc) || conc < 0) return NaN;
+  // ULOQ / LLOQ based on standard range
+  const stdConcs = stdData.map(d=>d.conc).filter(c=>c>0);
+  if(stdConcs.length) {
+    const maxStd = Math.max(...stdConcs);
+    const minStd = Math.min(...stdConcs);
+    if(conc > maxStd * 1.2) return Infinity;   // >ULOQ
+    if(conc < minStd * 0.8) return -Infinity;  // <LLOQ
+  }
+  return conc;
+}
+
+// ============================================================
+//  NELDER-MEAD OPTIMIZER
+// ============================================================
+function nelderMead(fn, x0, {maxIter=5000, tol=1e-12}={}) {
+  const n=x0.length;
+  let simplex=[x0.slice()];
+  for(let i=0;i<n;i++){let p=x0.slice();p[i]=p[i]!==0?p[i]*1.05:0.00025;simplex.push(p);}
+  let fValues=simplex.map(fn);
+  const alpha=1,gamma=2,rho=0.5,sigma=0.5;
+  for(let iter=0;iter<maxIter;iter++){
+    let order=Array.from({length:n+1},(_,i)=>i);order.sort((a,b)=>fValues[a]-fValues[b]);
+    simplex=order.map(i=>simplex[i]);fValues=order.map(i=>fValues[i]);
+    if(Math.abs(fValues[n]-fValues[0])<tol) break;
+    let centroid=new Array(n).fill(0);
+    for(let i=0;i<n;i++) for(let j=0;j<n;j++) centroid[j]+=simplex[i][j];
+    centroid=centroid.map(v=>v/n);
+    let xr=centroid.map((c,j)=>c+alpha*(c-simplex[n][j])),fr=fn(xr);
+    if(fr<fValues[n-1]&&fr>=fValues[0]){simplex[n]=xr;fValues[n]=fr;continue;}
+    if(fr<fValues[0]){let xe=centroid.map((c,j)=>c+gamma*(xr[j]-c)),fe=fn(xe);
+      if(fe<fr){simplex[n]=xe;fValues[n]=fe;}else{simplex[n]=xr;fValues[n]=fr;}continue;}
+    let xc=centroid.map((c,j)=>c+rho*(simplex[n][j]-c)),fc=fn(xc);
+    if(fc<fValues[n]){simplex[n]=xc;fValues[n]=fc;continue;}
+    for(let i=1;i<=n;i++){simplex[i]=simplex[i].map((v,j)=>simplex[0][j]+sigma*(v-simplex[0][j]));fValues[i]=fn(simplex[i]);}
+  }
+  let order=Array.from({length:n+1},(_,i)=>i);order.sort((a,b)=>fValues[a]-fValues[b]);
+  return {x:simplex[order[0]],fval:fValues[order[0]]};
+}
+
+function linearRegression(xs, ys) {
+  const n=xs.length; let sx=0,sy=0,sxx=0,sxy=0;
+  for(let i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxx+=xs[i]*xs[i];sxy+=xs[i]*ys[i];}
+  const m=(n*sxy-sx*sy)/(n*sxx-sx*sx),b=(sy-m*sx)/n;
+  return [m,b];
+}
+
+// ============================================================
+//  FIT CURVE  (does NOT regenerate plate — only re-imputes)
+// ============================================================
+function fitCurve() {
+  if(stdData.length < 2) { alert('Add at least 2 standard points.'); return; }
+  const xs=[], ys=[];
+  stdData.forEach(d => { d.ods.forEach(od => { if(!isNaN(od)&&od!=='') {xs.push(d.conc);ys.push(+od);} }); });
+
+  currentModel = document.getElementById('modelType').value;
+  if(currentModel === '4pl') {
+    const yMin=Math.min(...ys),yMax=Math.max(...ys);
+    const posXs=xs.filter(x=>x>0);
+    const cGuess=posXs.length?Math.exp(posXs.reduce((s,x)=>s+Math.log(x),0)/posXs.length):100;
+    const objective=(p)=>{if(p[2]<=0||p[1]<=0)return 1e15;return xs.reduce((s,x,i)=>{const r=ys[i]-fourPL(x,p);return s+r*r;},0);};
+    fittedParams = nelderMead(objective,[yMin,1.2,cGuess,yMax]).x;
+    // Update sliders to match fitted values
+    document.getElementById('sliderA').value = fittedParams[0];
+    document.getElementById('sliderB').value = Math.min(5,Math.max(0.1,fittedParams[1]));
+    document.getElementById('sliderC').value = Math.min(5000,Math.max(1,fittedParams[2]));
+    document.getElementById('sliderD').value = Math.min(5,Math.max(0.5,fittedParams[3]));
+    updateSliderLabels();
+  } else {
+    fittedParams = linearRegression(xs, ys);
+  }
+  plotCurve();
+  // Re-impute concentrations on existing plate (don't regenerate ODs)
+  reImputePlate();
+}
+
+function onModelChange() {
+  const is4pl = document.getElementById('modelType').value === '4pl';
+  document.getElementById('sliderPanel').style.display = is4pl ? 'block' : 'none';
+}
+
+// ============================================================
+//  4PL SLIDERS
+// ============================================================
+function updateSliderLabels() {
+  document.getElementById('valA').textContent = (+document.getElementById('sliderA').value).toFixed(3);
+  document.getElementById('valB').textContent = (+document.getElementById('sliderB').value).toFixed(2);
+  document.getElementById('valC').textContent = (+document.getElementById('sliderC').value).toFixed(1);
+  document.getElementById('valD').textContent = (+document.getElementById('sliderD').value).toFixed(3);
+}
+function onSliderChange() {
+  updateSliderLabels();
+  fittedParams = [
+    +document.getElementById('sliderA').value,
+    +document.getElementById('sliderB').value,
+    +document.getElementById('sliderC').value,
+    +document.getElementById('sliderD').value
+  ];
+  currentModel = '4pl';
+  document.getElementById('modelType').value = '4pl';
+  plotCurve();
+  reImputePlate(); // re-impute only, don't regenerate plate ODs
+}
+
+// ============================================================
+//  R² & PLOT
+// ============================================================
+function computeR2(xs, ys, model, params) {
+  const yMean=ys.reduce((a,b)=>a+b,0)/ys.length; let ssTot=0,ssRes=0;
+  xs.forEach((x,i)=>{ssTot+=(ys[i]-yMean)**2;ssRes+=(ys[i]-model(x,params))**2;});
+  return ssTot>0?1-ssRes/ssTot:0;
+}
+
+function plotCurve() {
+  if(!fittedParams||stdData.length<2) return;
+  const model=getModel();
+  const xs=[],ys=[];
+  stdData.forEach(d=>{d.ods.forEach(od=>{if(!isNaN(od)&&od!==''){xs.push(d.conc);ys.push(+od);}});});
+
+  const meanX=[],meanY=[],errY=[];
+  stdData.forEach(d=>{
+    const vals=d.ods.filter(v=>!isNaN(v)&&v!=='').map(Number);
+    if(!vals.length) return;
+    meanX.push(d.conc);
+    const m=vals.reduce((a,b)=>a+b,0)/vals.length; meanY.push(m);
+    if(vals.length>1){errY.push(Math.sqrt(vals.reduce((s,v)=>s+(v-m)**2,0)/(vals.length-1)));}
+    else errY.push(0);
+  });
+
+  const r2=computeR2(xs,ys,model,fittedParams);
+  const posConcs=stdData.map(d=>d.conc).filter(c=>c>0);
+  const maxC=Math.max(...posConcs,100),minC=Math.min(...posConcs.filter(c=>c>0),1);
+  let curveX=[],curveY=[];
+  const useLog = currentModel==='4pl';
+  if(useLog){
+    for(let i=0;i<=200;i++){const x=Math.pow(10,Math.log10(minC*0.5)+i*(Math.log10(maxC*1.5)-Math.log10(minC*0.5))/200);curveX.push(x);curveY.push(model(x,fittedParams));}
+  } else {
+    for(let i=0;i<=200;i++){const x=(maxC*1.1)*i/200;curveX.push(x);curveY.push(model(x,fittedParams));}
+  }
+
+  const traceReps={x:xs,y:ys,mode:'markers',type:'scatter',
+    marker:{size:6,color:'#94a3b8',symbol:'circle-open',line:{width:1.5}},
+    name:'Replicates',hovertemplate:'Conc: %{x:.1f}<br>OD: %{y:.3f}<extra></extra>'};
+  const traceMean={x:meanX,y:meanY,mode:'markers',type:'scatter',
+    error_y:{type:'data',array:errY,visible:true,color:'#2563eb',thickness:1.5,width:4},
+    marker:{size:9,color:'#2563eb',symbol:'circle'},
+    name:'Mean ± SD',hovertemplate:'Conc: %{x:.1f}<br>OD: %{y:.3f}<extra></extra>'};
+  const traceCurve={x:curveX,y:curveY,mode:'lines',type:'scatter',
+    line:{color:'#ef4444',width:2.5,shape:'spline'},name:currentModel.toUpperCase()+' Fit'};
+
+  const tickConcs=stdData.map(d=>d.conc).filter(c=>c>0).sort((a,b)=>a-b);
+  const tickText=tickConcs.map(c=>c>=1?(c%1===0?c.toFixed(0):c.toFixed(2)):c.toFixed(2));
+
+  Plotly.newPlot('curveChart',[traceReps,traceMean,traceCurve],{
+    xaxis: useLog
+      ? {title:'Concentration (pg/mL)',type:'log',gridcolor:'#e2e8f0',zeroline:false,tickmode:'array',tickvals:tickConcs,ticktext:tickText,tickfont:{size:10}}
+      : {title:'Concentration (pg/mL)',type:'linear',gridcolor:'#e2e8f0',zeroline:false,tickmode:'array',tickvals:tickConcs,ticktext:tickText,tickfont:{size:10}},
+    yaxis:{title:'OD',gridcolor:'#f1f5f9',zeroline:false,tickfont:{size:10}},
+    margin:{t:14,b:46,l:50,r:14},plot_bgcolor:'#fff',paper_bgcolor:'#fff',
+    legend:{x:0.02,y:0.98,bgcolor:'rgba(255,255,255,.8)',bordercolor:'#e2e8f0',borderwidth:1,font:{size:10}},
+    font:{family:'Segoe UI, system-ui, sans-serif',size:11}
+  },{responsive:true,displayModeBar:false});
+
+  document.getElementById('statsBox').style.display='block';
+  document.getElementById('statR2').textContent=r2.toFixed(5);
+  let eq='';
+  if(currentModel==='4pl') eq=`y = ${fittedParams[3].toFixed(2)} + (${fittedParams[0].toFixed(2)} − ${fittedParams[3].toFixed(2)}) / (1 + (x/${fittedParams[2].toFixed(1)})^${fittedParams[1].toFixed(2)})`;
+  else eq=`y = ${fittedParams[0].toFixed(5)}x + ${fittedParams[1].toFixed(3)}`;
+  document.getElementById('statEq').textContent=eq;
+}
+
+// ============================================================
+//  PLATE GENERATION
+// ============================================================
+function gaussRandom() {
+  let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+
+function generatePlateData() {
+  const dilution = +document.getElementById('dilutionFactor').value;
+  const startConc = +document.getElementById('startConc').value;
+  const nStdReps = getStdReps();
+
+  const wells = [];
+
+  // --- STANDARDS: cols 0..(nStdReps-1), rows A-H ---
+  // ODs simulated from TRUE underlying assay curve (not the user's fit)
+  for(let r=0;r<8;r++){
+    const conc = r===7 ? 0 : startConc/Math.pow(dilution,r);
+    for(let rep=0;rep<nStdReps;rep++){
+      const trueOD = fourPL(conc, TRUE_PARAMS);
+      const noise = conc===0 ? Math.abs(gaussRandom()*0.008) : trueOD*NOISE_CV*gaussRandom();
+      const od = Math.max(0, trueOD + noise);
+      wells.push({row:r, col:rep, od, conc, type:'standard',
+        label: conc>0 ? `Std ${conc.toFixed(1)} pg/mL` : 'Std Blank',
+        impConc:null, condition:null});
+    }
+  }
+
+  // --- SAMPLES: rows D-F (triplicates), specific columns ---
+  // ODs from TRUE curve; imputed concentrations from user's fitted model
+  SAMPLE_CONDITIONS.forEach(cond => {
+    for(let ri=0; ri<SAMPLE_ROWS.length; ri++){
+      const r = SAMPLE_ROWS[ri];
+      const trueOD = fourPL(cond.trueAnalyte, TRUE_PARAMS);
+      const noise = trueOD * NOISE_CV * gaussRandom();
+      const od = Math.max(0, trueOD + noise);
+      const impConc = fittedParams ? invertModel(od) : NaN;
+      wells.push({row:r, col:cond.col, od, conc:cond.trueAnalyte, type:'sample',
+        label: cond.stimulus, condition:cond, impConc});
+    }
+  });
+
+  // --- BLANK: everything else ---
+  const occupied = new Set(wells.map(w=>`${w.row}-${w.col}`));
+  for(let r=0;r<8;r++) for(let c=0;c<12;c++){
+    if(!occupied.has(`${r}-${c}`)){
+      wells.push({row:r, col:c, od:0.04+Math.random()*0.015, conc:0, type:'blank',
+        label:'Blank', impConc:null, condition:null});
+    }
+  }
+  return {wells, nStdReps, dilution, startConc};
+}
+
+// Re-impute concentrations on existing plate when model changes
+function reImputePlate() {
+  if(!plateData || !fittedParams) return;
+  plateData.wells.forEach(w => {
+    if(w.type === 'sample') {
+      w.impConc = invertModel(w.od);
+    }
+  });
+  renderPlate();
+  renderSampleResults();
+}
+
+// Full plate regeneration (new random ODs + reset std curve data)
+function regeneratePlate() {
+  // Also regenerate standard curve data with fresh noise
+  syncStdFromPlateSettings();
+  fitCurve();   // re-fit from new std data (fitCurve calls reImputePlate, not regeneratePlate)
+  plateData = generatePlateData();
+  if(!plateData) return;
+  renderPlate();
+  renderSampleResults();
+}
+
+function renderPlate() {
+  if(!plateData) return;
+  renderPlateDot();
+}
+
+// ============================================================
+//  COLOUR HELPERS
+// ============================================================
+function odToColor(od, maxOD) {
+  const t = Math.min(1,Math.max(0,od/maxOD));
+  return `rgb(${Math.max(0,Math.round(255-t*60))},${Math.max(0,Math.round(249-t*220))},${Math.max(0,Math.round(195-t*170))})`;
+}
+const BLANK_COLOR = '#f1f5f9';
+
+// Condition colours for sample borders
+const COND_COLORS = {
+  'No stimulus':'#94a3b8',
+  'Protein X 1 ng/mL':'#38bdf8',
+  'Protein X 10 ng/mL':'#22c55e',
+  'Protein X 100 ng/mL':'#f59e0b',
+  'Protein X 1000 ng/mL':'#ef4444',
+};
+
+// ============================================================
+//  RENDER PLATE — DOT VIEW
+// ============================================================
+function renderPlateDot() {
+  if(!plateData) return;
+  const maxOD = Math.max(...plateData.wells.filter(w=>w.type!=='blank').map(w=>w.od), 0.5);
+
+  let html = '<div class="plate-grid">';
+  html += '<div class="plate-header"></div>';
+  COLS.forEach(c => { html += `<div class="plate-header">${c}</div>`; });
+
+  ROWS.forEach((rLabel, r) => {
+    html += `<div class="plate-header" style="display:flex;align-items:center;justify-content:center;">${rLabel}</div>`;
+    COLS.forEach((cLabel, c) => {
+      const well = plateData.wells.find(w => w.row===r && w.col===c);
+      if(!well) { html += '<div></div>'; return; }
+
+      if(well.type === 'blank') {
+        const bErrClass = well.error ? ' error-well' : '';
+        const bErrTip = well.error ? `<br><b style="color:#fbbf24;">⚠ ${well.error}</b>` : '';
+        html += `<div class="plate-well blank-well${bErrClass}" style="background:${well.error?odToColor(well.od,maxOD):BLANK_COLOR};border-color:${well.error?'#ef4444':'#cbd5e1'};">
+          ${well.error?well.od.toFixed(2):'—'}<div class="tooltip"><b>${rLabel}${cLabel}</b> — Blank<br>OD: ${well.od.toFixed(3)}${bErrTip}</div></div>`;
+      } else if(well.type === 'standard') {
+        const color = odToColor(well.od, maxOD);
+        const sErrClass = well.error ? ' error-well' : '';
+        const sErrTip = well.error ? `<br><b style="color:#fbbf24;">⚠ ${well.error}</b>` : '';
+        html += `<div class="plate-well${sErrClass}" style="background:${color};border-color:${well.error?'#ef4444':'#6366f1'};">
+          ${well.od.toFixed(2)}
+          <div class="tooltip"><b>${rLabel}${cLabel}</b> — ${well.label}<br>OD: ${well.od.toFixed(3)}<br>Conc: ${well.conc.toFixed(1)} pg/mL${sErrTip}</div></div>`;
+      } else {
+        const color = odToColor(well.od, maxOD);
+        const bdr = COND_COLORS[well.label] || '#22c55e';
+        const impLabel = well.impConc === Infinity ? '>ULoQ'
+          : well.impConc === -Infinity ? '<LLoQ'
+          : (!isNaN(well.impConc)&&well.impConc!==null) ? well.impConc.toFixed(0) : '—';
+        const errClass = well.error ? ' error-well' : '';
+        const errTip = well.error ? `<br><b style="color:#fbbf24;">⚠ ${well.error}</b>` : '';
+        const loqStyle = (well.impConc===Infinity||well.impConc===-Infinity) ? 'font-size:.52rem;color:#fef;' : '';
+        html += `<div class="plate-well${errClass}" style="background:${color};border-color:${well.error?'#ef4444':bdr};${loqStyle}">
+          ${impLabel}
+          <div class="tooltip"><b>${rLabel}${cLabel}</b><br>${well.label}<br>OD: ${well.od.toFixed(3)}<br>Imputed: ${impLabel}${(well.impConc===Infinity||well.impConc===-Infinity)?'':' pg/mL'}${errTip}</div></div>`;
+      }
+    });
+  });
+  html += '</div>';
+  document.getElementById('plateArea').innerHTML = html;
+}
+
+// ============================================================
+//  SAMPLE RESULTS TABLE
+// ============================================================
+function renderSampleResults() {
+  if(!plateData) { document.getElementById('sampleResultsCard').style.display='none'; return; }
+  const samples = plateData.wells.filter(w=>w.type==='sample');
+  if(!samples.length) { document.getElementById('sampleResultsCard').style.display='none'; return; }
+
+  // Group by condition (column)
+  const groups = [];
+  SAMPLE_CONDITIONS.forEach(cond => {
+    const reps = samples.filter(w=>w.col===cond.col);
+    if(reps.length) groups.push({cond, reps});
+  });
+
+  let html = '<table class="sample-table"><thead><tr><th>Condition</th><th>Stimulus</th><th>Well</th><th>OD</th><th>Imputed (pg/mL)</th><th>Mean ± SD</th></tr></thead><tbody>';
+  groups.forEach(g => {
+    // Only finite values go into mean ± SD
+    const impVals = g.reps.map(r=>r.impConc).filter(v=> isFinite(v) && v!==null);
+    const nULOQ = g.reps.filter(r=>r.impConc===Infinity).length;
+    const nLLOQ = g.reps.filter(r=>r.impConc===-Infinity).length;
+    const meanImp = impVals.length ? impVals.reduce((a,b)=>a+b,0)/impVals.length : NaN;
+    const sdImp = impVals.length>1 ? Math.sqrt(impVals.reduce((s,v)=>s+(v-meanImp)**2,0)/(impVals.length-1)) : 0;
+    const badgeColor = COND_COLORS[g.cond.stimulus] || '#94a3b8';
+
+    g.reps.forEach((rep,i) => {
+      const imp = rep.impConc === Infinity ? '<span style="color:#dc2626;font-weight:700;">&gt;ULoQ</span>'
+        : rep.impConc === -Infinity ? '<span style="color:#2563eb;font-weight:700;">&lt;LLoQ</span>'
+        : (!isNaN(rep.impConc)&&rep.impConc!==null) ? rep.impConc.toFixed(1) : '—';
+      html += '<tr>';
+      if(i===0){
+        html += `<td rowspan="${g.reps.length}" style="font-weight:600;">
+          <span class="cond-badge" style="background:${badgeColor}20;color:${badgeColor};border:1px solid ${badgeColor}40;">${g.cond.stimulus}</span></td>`;
+        html += `<td rowspan="${g.reps.length}">${g.cond.stimConc}</td>`;
+      }
+      html += `<td>${ROWS[rep.row]}${rep.col+1}</td>`;
+      html += `<td>${rep.od.toFixed(3)}</td><td>${imp}</td>`;
+      if(i===0){
+        let meanStr = !isNaN(meanImp) ? meanImp.toFixed(1) : '—';
+        if(sdImp>0) meanStr += ' ± '+sdImp.toFixed(1);
+        let flags = [];
+        if(nULOQ) flags.push(`<span style="color:#dc2626;font-size:.62rem;">${nULOQ}× &gt;ULoQ</span>`);
+        if(nLLOQ) flags.push(`<span style="color:#2563eb;font-size:.62rem;">${nLLOQ}× &lt;LLoQ</span>`);
+        html += `<td rowspan="${g.reps.length}" style="font-weight:700;color:var(--accent);">${meanStr}${flags.length?'<br>'+flags.join(' '):''}
+        </td>`;
+      }
+      html += '</tr>';
+    });
+  });
+  html += '</tbody></table>';
+  document.getElementById('sampleResultsArea').innerHTML = html;
+  document.getElementById('sampleResultsCard').style.display = 'block';
+}
+
+// ============================================================
+//  ERROR SIMULATION
+// ============================================================
+let errorLog = [];
+
+function logError(msg) {
+  errorLog.push(msg);
+  const el = document.getElementById('errorLog');
+  el.style.display = 'block';
+  el.innerHTML = '<b>⚠ Error log:</b> ' + errorLog.join(' · ');
+}
+
+function clearErrors() {
+  if(!plateData) return;
+  errorLog = [];
+  document.getElementById('errorLog').style.display = 'none';
+  // Regenerate fresh plate + std data
+  regeneratePlate();
+}
+
+// Helper: pick N random items from array
+function pickRandom(arr, n) {
+  const copy = arr.slice();
+  const result = [];
+  for(let i = 0; i < Math.min(n, copy.length); i++){
+    const idx = Math.floor(Math.random()*copy.length);
+    result.push(copy.splice(idx,1)[0]);
+  }
+  return result;
+}
+
+// Sync plate standard ODs back into stdData table, then refit
+function syncStdFromPlate() {
+  if(!plateData) return;
+  const nReps = getStdReps();
+  const stdWells = plateData.wells.filter(w => w.type==='standard');
+  // Group by row (each row = one concentration level)
+  const byRow = {};
+  stdWells.forEach(w => { if(!byRow[w.row]) byRow[w.row]=[]; byRow[w.row].push(w); });
+  // Update stdData to match plate wells
+  Object.keys(byRow).sort((a,b)=>+a - +b).forEach((rowKey, i) => {
+    if(i >= stdData.length) return;
+    const wells = byRow[rowKey].sort((a,b)=>a.col-b.col);
+    stdData[i].ods = wells.slice(0,nReps).map(w => +w.od.toFixed(3));
+  });
+  renderStdTable();
+  fitCurve();
+}
+
+// 1) Pipette error on standards — 2 random std wells get wrong volume
+function simPipetteStd() {
+  if(!plateData) return;
+  const stds = plateData.wells.filter(w => w.type==='standard' && w.conc > 0);
+  const targets = pickRandom(stds, 2);
+  const affected = [];
+  targets.forEach(w => {
+    // Under- or over-pipette: factor 0.4-0.65 or 1.4-1.8
+    const under = Math.random() < 0.5;
+    const factor = under ? 0.4+Math.random()*0.25 : 1.4+Math.random()*0.4;
+    w.od = Math.max(0, w.od * factor);
+    w.error = `Pipette ${under?'under':'over'} (×${factor.toFixed(2)})`;
+    affected.push(`${ROWS[w.row]}${w.col+1}`);
+  });
+  logError(`Pipette err (Std): ${affected.join(', ')}`);
+  syncStdFromPlate();
+  renderPlate();
+}
+
+// 2) Pipette error on samples — 2 random sample wells
+function simPipetteSample() {
+  if(!plateData) return;
+  const samples = plateData.wells.filter(w => w.type==='sample');
+  const targets = pickRandom(samples, 2);
+  const affected = [];
+  targets.forEach(w => {
+    const under = Math.random() < 0.5;
+    const factor = under ? 0.4+Math.random()*0.25 : 1.4+Math.random()*0.4;
+    w.od = Math.max(0, w.od * factor);
+    w.impConc = fittedParams ? invertModel(w.od) : NaN;
+    w.error = `Pipette ${under?'under':'over'} (×${factor.toFixed(2)})`;
+    affected.push(`${ROWS[w.row]}${w.col+1}`);
+  });
+  logError(`Pipette err (Sample): ${affected.join(', ')}`);
+  renderPlate();
+  renderSampleResults();
+}
+
+// 3) Bubble in a sample — 1 random sample gets saturated OD
+function simBubble() {
+  if(!plateData) return;
+  const samples = plateData.wells.filter(w => w.type==='sample' && !w.error);
+  if(!samples.length) return;
+  const w = pickRandom(samples, 1)[0];
+  w.od = 3.2 + Math.random()*0.6; // saturated reading
+  w.impConc = fittedParams ? invertModel(w.od) : NaN;
+  w.error = 'Air bubble (saturated)';
+  logError(`Bubble: ${ROWS[w.row]}${w.col+1} → OD ${w.od.toFixed(3)}`);
+  renderPlate();
+  renderSampleResults();
+}
+
+// 4) Edge effect — perimeter wells get +15-25% OD boost
+function simEdgeEffect() {
+  if(!plateData) return;
+  const affected = [];
+  plateData.wells.forEach(w => {
+    if(w.row===0 || w.row===7 || w.col===0 || w.col===11) {
+      const boost = 1.15 + Math.random()*0.10;
+      w.od = w.od * boost;
+      w.error = `Edge effect (+${((boost-1)*100).toFixed(0)}%)`;
+      affected.push(`${ROWS[w.row]}${w.col+1}`);
+      if(w.type==='sample') w.impConc = fittedParams ? invertModel(w.od) : NaN;
+    }
+  });
+  logError(`Edge effect: ${affected.length} perimeter wells boosted`);
+  syncStdFromPlate(); // standards on edges are affected
+  renderPlate();
+  renderSampleResults();
+}
+
+// 5) Cross-contamination — high-conc standard bleeds into adjacent well
+function simCrossContam() {
+  if(!plateData) return;
+  // Find the highest-OD standard
+  const stds = plateData.wells.filter(w => w.type==='standard').sort((a,b)=>b.od-a.od);
+  if(!stds.length) return;
+  const source = stds[0];
+  // Find adjacent well (same row, next col)
+  const targetCol = source.col + 1;
+  const target = plateData.wells.find(w => w.row===source.row && w.col===targetCol);
+  if(!target) return;
+  const bleed = source.od * (0.3 + Math.random()*0.2);
+  target.od = target.od + bleed;
+  target.error = `Cross-contam from ${ROWS[source.row]}${source.col+1} (+${bleed.toFixed(2)} OD)`;
+  if(target.type==='sample') target.impConc = fittedParams ? invertModel(target.od) : NaN;
+  logError(`Cross-contam: ${ROWS[source.row]}${source.col+1} → ${ROWS[target.row]}${target.col+1}`);
+  if(target.type==='standard') syncStdFromPlate();
+  renderPlate();
+  renderSampleResults();
+}
+
+// 6) Incomplete wash — 3-5 random blanks get elevated background
+function simIncompleteWash() {
+  if(!plateData) return;
+  const blanks = plateData.wells.filter(w => w.type==='blank');
+  const targets = pickRandom(blanks, 3 + Math.floor(Math.random()*3));
+  const affected = [];
+  targets.forEach(w => {
+    w.od = 0.15 + Math.random()*0.25; // elevated background
+    w.error = `Incomplete wash (OD ${w.od.toFixed(3)})`;
+    affected.push(`${ROWS[w.row]}${w.col+1}`);
+  });
+  logError(`Incomplete wash: ${affected.length} blanks elevated`);
+  renderPlate();
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+onModelChange();
+loadDemoData();
+</script>
+</body>
+</html>
